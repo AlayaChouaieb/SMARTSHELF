@@ -63,9 +63,25 @@ docker compose down
 
 The dashboard uses the existing FastAPI endpoints through the Vite development proxy. It does not connect directly to PostgreSQL.
 
-## Database initialization
+## Database initialization and demo data
 
 The SQL schema is in `database/smartshelf_schema.sql`. Initialize a fresh database using that script before starting the application for the first time. Existing Docker volumes retain their current database contents.
+
+To populate the dashboard with a varied supermarket catalogue, batches, shelf allocations and inventory movements, run the repeatable demo seed script:
+
+```powershell
+Get-Content .\database\seed_demo_data.sql | docker compose exec -T postgres psql -U smartshelf_user -d smartshelf
+```
+
+The seed adds 12 example products across beverages, dairy, bakery, pantry, snacks, household, personal care and frozen foods. It creates multiple batches (including expired, expiring-today and expiring-soon examples), four additional shelves, inventory quantities and initial movement events. It is safe to run again: it uses stable SKUs, batch numbers and shelf codes, and sets the seeded inventory rows to their defined demo quantities rather than adding the quantities a second time. It does not delete unrelated records.
+
+Then generate or reconcile the alerts from the seeded stock and expiry conditions:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/alerts/refresh
+```
+
+Refresh the dashboard at http://localhost:5173.
 
 ## MQTT simulator
 
