@@ -19,8 +19,12 @@ export const markAlertRead = id => api.patch(`/api/alerts/${id}/read`).then(r =>
 export const resolveAlert = id => api.patch(`/api/alerts/${id}/resolve`).then(r => r.data);
 export const refreshAlerts = () => api.post("/api/alerts/refresh").then(r => r.data);
 export const createProduct = payload => api.post("/api/products/", payload).then(r => r.data);
+export const updateProduct = (id, payload) => api.put(`/api/products/${id}`, payload).then(r => r.data);
+export const deactivateProduct = id => api.delete(`/api/products/${id}`).then(r => r.data);
 export const createBatch = payload => api.post("/api/batches/", payload).then(r => r.data);
 export const createShelf = payload => api.post("/api/shelves/", payload).then(r => r.data);
+export const updateShelf = (id, payload) => api.put(`/api/shelves/${id}`, payload).then(r => r.data);
+export const deactivateShelf = id => api.delete(`/api/shelves/${id}`).then(r => r.data);
 
 export function errorMessage(error) {
   return error?.response?.data?.detail || error?.message || "An unexpected error occurred.";
