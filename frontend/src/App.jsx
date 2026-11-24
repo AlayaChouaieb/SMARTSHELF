@@ -143,15 +143,15 @@ function App() {
               {page === "overview" && <Overview summary={summary} inventory={inventory} events={events} alerts={activeAlerts} chartData={chartData} onNavigate={setPage} onRefreshAlerts={() => runAction(refreshAlerts, "Alerts refreshed")} />}
               {page === "inventory" && <InventoryPage rows={filteredInventory} query={query} setQuery={setQuery} onReceive={() => setModal("receive")} onAdjust={row => {setSelectedRow(row);setModal("adjust");}} />}
               {page === "products" && <ProductsPage rows={filteredProducts} query={query} setQuery={setQuery} onAdd={() => {setSelectedRow(null);setModal("product");}} onEdit={row => {setSelectedRow(row);setModal("edit-product");}} onToggle={row => {
-                const action = row.is_active ? deactivateProduct(row.id) : updateProduct(row.id, {is_active:true});
+                const action = () => row.is_active ? deactivateProduct(row.id) : updateProduct(row.id, {is_active:true});
                 const message = row.is_active ? "Product deactivated" : "Product reactivated";
-                if (!row.is_active || window.confirm(`Deactivate "${row.name}"? It will be hidden from active catalogue operations, but its history will be preserved.`)) runAction(() => action, message);
+                if (!row.is_active || window.confirm(`Deactivate "${row.name}"? It will be hidden from active catalogue operations, but its history will be preserved.`)) runAction(action, message);
               }} />}
               {page === "batches" && <BatchesPage rows={filteredBatches} products={products} query={query} setQuery={setQuery} onAdd={() => setModal("batch")} />}
               {page === "shelves" && <ShelvesPage rows={filteredShelves} query={query} setQuery={setQuery} onAdd={() => {setSelectedRow(null);setModal("shelf");}} onEdit={row => {setSelectedRow(row);setModal("edit-shelf");}} onToggle={row => {
-                const action = row.is_active ? deactivateShelf(row.id) : updateShelf(row.id, {is_active:true});
+                const action = () => row.is_active ? deactivateShelf(row.id) : updateShelf(row.id, {is_active:true});
                 const message = row.is_active ? "Shelf deactivated" : "Shelf reactivated";
-                if (!row.is_active || window.confirm(`Deactivate shelf "${row.code}"? It must have zero stock. Its history will be preserved.`)) runAction(() => action, message);
+                if (!row.is_active || window.confirm(`Deactivate shelf "${row.code}"? It must have zero stock. Its history will be preserved.`)) runAction(action, message);
               }} />}
               {page === "alerts" && <AlertsPage rows={alerts} onRead={id => runAction(() => markAlertRead(id), "Alert marked as read")} onResolve={id => runAction(() => resolveAlert(id), "Alert resolved")} onRefresh={() => runAction(refreshAlerts, "Alerts refreshed")} />}
             </>
