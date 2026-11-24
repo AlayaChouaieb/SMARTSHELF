@@ -10,9 +10,10 @@ import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  adjustStock, createBatch, createProduct, createShelf, errorMessage,
-  getAlerts, getBatches, getDashboard, getEvents, getInventory, getProducts,
-  getShelves, markAlertRead, receiveStock, refreshAlerts, resolveAlert,
+  adjustStock, createBatch, createProduct, createShelf, deactivateProduct,
+  deactivateShelf, errorMessage, getAlerts, getBatches, getDashboard,
+  getEvents, getInventory, getProducts, getShelves, markAlertRead,
+  receiveStock, refreshAlerts, resolveAlert, updateProduct, updateShelf,
 } from "./api";
 
 const NAV = [
@@ -50,8 +51,8 @@ function App() {
     setError("");
     try {
       const [s, i, e, p, b, sh, a] = await Promise.all([
-        getDashboard(), getInventory(), getEvents(), getProducts(),
-        getBatches(), getShelves(), getAlerts(),
+        getDashboard(), getInventory(), getEvents(), getProducts({ active_only: false }),
+        getBatches(), getShelves({ active_only: false }), getAlerts(),
       ]);
       setSummary(s); setInventory(i); setEvents(e); setProducts(p);
       setBatches(b); setShelves(sh); setAlerts(a);
@@ -141,9 +142,17 @@ function App() {
             <>
               {page === "overview" && <Overview summary={summary} inventory={inventory} events={events} alerts={activeAlerts} chartData={chartData} onNavigate={setPage} onRefreshAlerts={() => runAction(refreshAlerts, "Alerts refreshed")} />}
               {page === "inventory" && <InventoryPage rows={filteredInventory} query={query} setQuery={setQuery} onReceive={() => setModal("receive")} onAdjust={row => {setSelectedRow(row);setModal("adjust");}} />}
-              {page === "products" && <ProductsPage rows={filteredProducts} query={query} setQuery={setQuery} onAdd={() => setModal("product")} />}
+              {page === "products" && <ProductsPage rows={filteredProducts} query={query} setQuery={setQuery} onAdd={() => {setSelectedRow(null);setModal("product");}} onEdit={row => {setSelectedRow(row);setModal("edit-product");}} onToggle={row => {
+                const action = row.is_active ? deactivateProduct(row.id) : updateProduct(row.id, {is_active:true});
+                const message = row.is_active ? "Product deactivated" : "Product reactivated";
+                if (!row.is_active || window.confirm(`Deactivate "${row.name}"? It will be hidden from active catalogue operations, but its history will be preserved.`)) runAction(() => action, message);
+              }} />}
               {page === "batches" && <BatchesPage rows={filteredBatches} products={products} query={query} setQuery={setQuery} onAdd={() => setModal("batch")} />}
-              {page === "shelves" && <ShelvesPage rows={filteredShelves} query={query} setQuery={setQuery} onAdd={() => setModal("shelf")} />}
+              {page === "shelves" && <ShelvesPage rows={filteredShelves} query={query} setQuery={setQuery} onAdd={() => {setSelectedRow(null);setModal("shelf");}} onEdit={row => {setSelectedRow(row);setModal("edit-shelf");}} onToggle={row => {
+                const action = row.is_active ? deactivateShelf(row.id) : updateShelf(row.id, {is_active:true});
+                const message = row.is_active ? "Shelf deactivated" : "Shelf reactivated";
+                if (!row.is_active || window.confirm(`Deactivate shelf "${row.code}"? It must have zero stock. Its history will be preserved.`)) runAction(() => action, message);
+              }} />}
               {page === "alerts" && <AlertsPage rows={alerts} onRead={id => runAction(() => markAlertRead(id), "Alert marked as read")} onResolve={id => runAction(() => resolveAlert(id), "Alert resolved")} onRefresh={() => runAction(refreshAlerts, "Alerts refreshed")} />}
             </>
           }
@@ -151,12 +160,14 @@ function App() {
         <footer className="footer"><span>SMARTSHELF · Smart inventory monitoring</span><span>Auto-refresh every 30 seconds <span className="footer-dot">·</span> API connected locally</span></footer>
       </main>
 
-      {modal && <Modal title={{receive:"Receive stock",adjust:"Adjust stock",product:"Add product",batch:"Register batch",shelf:"Register smart shelf"}[modal]} onClose={() => setModal("")}>
+      {modal && <Modal title={{receive:"Receive stock",adjust:"Adjust stock",product:"Add product","edit-product":"Edit product",batch:"Register batch",shelf:"Register smart shelf","edit-shelf":"Edit smart shelf"}[modal]} onClose={() => setModal("")}>
         {modal === "receive" && <ReceiveForm batches={batches} shelves={shelves} onSubmit={data => runAction(() => receiveStock(data), "Stock received successfully")} onCancel={() => setModal("")} />}
         {modal === "adjust" && <AdjustForm row={selectedRow} onSubmit={data => runAction(() => adjustStock(selectedRow.id, data), "Inventory adjusted successfully")} onCancel={() => setModal("")} />}
         {modal === "product" && <ProductForm onSubmit={data => runAction(() => createProduct(data), "Product created successfully")} onCancel={() => setModal("")} />}
+        {modal === "edit-product" && <ProductForm initial={selectedRow} onSubmit={data => runAction(() => updateProduct(selectedRow.id, data), "Product updated successfully")} onCancel={() => setModal("")} />}
         {modal === "batch" && <BatchForm products={products} onSubmit={data => runAction(() => createBatch(data), "Batch registered successfully")} onCancel={() => setModal("")} />}
         {modal === "shelf" && <ShelfForm onSubmit={data => runAction(() => createShelf(data), "Shelf registered successfully")} onCancel={() => setModal("")} />}
+        {modal === "edit-shelf" && <ShelfForm initial={selectedRow} onSubmit={data => runAction(() => updateShelf(selectedRow.id, data), "Shelf updated successfully")} onCancel={() => setModal("")} />}
       </Modal>}
       {toast && <div className="toast"><Check size={17}/>{toast}</div>}
     </div>
@@ -206,14 +217,14 @@ function InventoryPage({rows,query,setQuery,onReceive,onAdjust}) {
     <TablePanel empty="No inventory records"><div className="data-table"><div className="data-head inv-cols"><span>PRODUCT</span><span>BATCH / EXPIRY</span><span>SHELF</span><span>QUANTITY</span><span>UPDATED</span><span/></div>{rows.map(r=><div className="data-row inv-cols" key={r.id}><div className="product-cell"><div className="product-thumb"><Package size={17}/></div><div><strong>{r.product_name}</strong><small>Product #{r.product_id}</small></div></div><div><strong>{r.batch_number}</strong><small>Batch #{r.batch_id}</small></div><div><span className="shelf-tag">{r.shelf_code}</span><small>{r.shelf_name}</small></div><strong className="quantity">{r.quantity} units</strong><span className="muted">{date(r.updated_at)}</span><button className="small-action" onClick={()=>onAdjust(r)}>Adjust</button></div>)}</div></TablePanel>
   </>;
 }
-function ProductsPage({rows,query,setQuery,onAdd}) {
-  return <><PageHeading eyebrow="CATALOGUE" title="Products" description="Manage product information, barcodes, pricing and stock thresholds." action={<button className="button button-dark" onClick={onAdd}><Plus size={16}/> Add product</button>}/><div className="toolbar"><SearchBar value={query} onChange={setQuery} placeholder="Search name, brand, SKU or barcode"/><span className="result-count">{rows.length} products</span></div><TablePanel empty="No products found"><div className="data-table"><div className="data-head product-cols"><span>PRODUCT</span><span>BARCODE / SKU</span><span>CATEGORY ID</span><span>SELLING PRICE</span><span>MIN STOCK</span><span>STATUS</span></div>{rows.map(p=><div className="data-row product-cols" key={p.id}><div className="product-cell"><div className="product-thumb"><Package size={17}/></div><div><strong>{p.name}</strong><small>{p.brand || "No brand specified"}</small></div></div><div><strong>{p.barcode || "—"}</strong><small>{p.sku || "No SKU"}</small></div><span>{p.category_id ?? "—"}</span><strong>{money(p.selling_price)}</strong><span>{p.min_stock}</span><span className={`status-pill ${p.is_active ? "ok" : "off"}`}>{p.is_active ? "Active" : "Inactive"}</span></div>)}</div></TablePanel></>;
+function ProductsPage({rows,query,setQuery,onAdd,onEdit,onToggle}) {
+  return <><PageHeading eyebrow="CATALOGUE" title="Products" description="Manage product information, barcodes, pricing and stock thresholds." action={<button className="button button-dark" onClick={onAdd}><Plus size={16}/> Add product</button>}/><div className="toolbar"><SearchBar value={query} onChange={setQuery} placeholder="Search name, brand, SKU or barcode"/><span className="result-count">{rows.length} products · includes inactive records</span></div><TablePanel empty="No products found"><div className="data-table"><div className="data-head product-cols"><span>PRODUCT</span><span>BARCODE / SKU</span><span>CATEGORY ID</span><span>SELLING PRICE</span><span>MIN STOCK</span><span>STATUS</span><span>ACTIONS</span></div>{rows.map(p=><div className="data-row product-cols" key={p.id}><div className="product-cell"><div className="product-thumb"><Package size={17}/></div><div><strong>{p.name}</strong><small>{p.brand || "No brand specified"}</small></div></div><div><strong>{p.barcode || "—"}</strong><small>{p.sku || "No SKU"}</small></div><span>{p.category_id ?? "—"}</span><strong>{money(p.selling_price)}</strong><span>{p.min_stock}</span><span className={`status-pill ${p.is_active ? "ok" : "off"}`}>{p.is_active ? "Active" : "Inactive"}</span><div className="row-actions"><button className="small-action" onClick={()=>onEdit(p)}>Edit</button><button className="small-action" onClick={()=>onToggle(p)}>{p.is_active?"Deactivate":"Reactivate"}</button></div></div>)}</div></TablePanel></>;
 }
 function BatchesPage({rows,products,query,setQuery,onAdd}) {
   return <><PageHeading eyebrow="TRACEABILITY" title="Batches & expiry" description="Track product batches and their expiration dates." action={<button className="button button-dark" onClick={onAdd}><Plus size={16}/> Register batch</button>}/><div className="toolbar"><SearchBar value={query} onChange={setQuery} placeholder="Search batch or product"/><span className="result-count">{rows.length} batches</span></div><TablePanel empty="No batches registered"><div className="data-table"><div className="data-head batch-cols"><span>BATCH NUMBER</span><span>PRODUCT</span><span>EXPIRATION DATE</span><span>RECEIVED QTY</span><span>UNIT COST</span><span>REGISTERED</span></div>{rows.map(b=>{const expired=new Date(b.expiration_date)<new Date(new Date().toDateString());return <div className="data-row batch-cols" key={b.id}><strong>{b.batch_number}</strong><span>{products.find(p=>p.id===b.product_id)?.name || `Product #${b.product_id}`}</span><span className={expired?"danger-text":""}>{date(b.expiration_date)} {expired && <small>Expired</small>}</span><span>{b.received_quantity}</span><span>{b.purchase_price==null?"—":money(b.purchase_price)}</span><span className="muted">{date(b.received_at)}</span></div>})}</div></TablePanel></>;
 }
-function ShelvesPage({rows,query,setQuery,onAdd}) {
-  return <><PageHeading eyebrow="IOT INFRASTRUCTURE" title="Smart shelves" description="Manage connected shelf identities and device status." action={<button className="button button-dark" onClick={onAdd}><Plus size={16}/> Add shelf</button>}/><div className="toolbar"><SearchBar value={query} onChange={setQuery} placeholder="Search shelf or device ID"/><span className="result-count">{rows.length} shelves</span></div><div className="shelf-grid">{rows.map(s=><div className="panel shelf-card" key={s.id}><div className="shelf-card-top"><div className="shelf-large-icon"><Store size={22}/></div><span className={`status-pill ${s.is_active?"ok":"off"}`}>{s.is_active?"Active":"Inactive"}</span></div><h3>{s.name}</h3><span className="shelf-code">{s.code}</span><div className="shelf-meta"><span><Zap size={14}/> {s.device_id || "No device ID"}</span><span><Activity size={14}/> {s.location || "Location not set"}</span></div></div>)}</div>{!rows.length&&<div className="panel"><Empty icon={Store} title="No shelves registered" text="Add a shelf to connect a simulated or physical device."/></div>}</>;
+function ShelvesPage({rows,query,setQuery,onAdd,onEdit,onToggle}) {
+  return <><PageHeading eyebrow="IOT INFRASTRUCTURE" title="Smart shelves" description="Manage connected shelf identities and device status." action={<button className="button button-dark" onClick={onAdd}><Plus size={16}/> Add shelf</button>}/><div className="toolbar"><SearchBar value={query} onChange={setQuery} placeholder="Search shelf or device ID"/><span className="result-count">{rows.length} shelves · includes inactive records</span></div><div className="shelf-grid">{rows.map(s=><div className="panel shelf-card" key={s.id}><div className="shelf-card-top"><div className="shelf-large-icon"><Store size={22}/></div><span className={`status-pill ${s.is_active?"ok":"off"}`}>{s.is_active?"Active":"Inactive"}</span></div><h3>{s.name}</h3><span className="shelf-code">{s.code}</span><div className="shelf-meta"><span><Zap size={14}/> {s.device_id || "No device ID"}</span><span><Activity size={14}/> {s.location || "Location not set"}</span></div><div className="shelf-actions"><button className="small-action" onClick={()=>onEdit(s)}>Edit shelf</button><button className="small-action" onClick={()=>onToggle(s)}>{s.is_active?"Deactivate":"Reactivate"}</button></div></div>)}</div>{!rows.length&&<div className="panel"><Empty icon={Store} title="No shelves registered" text="Add a shelf to connect a simulated or physical device."/></div>}</>;
 }
 function AlertsPage({rows,onRead,onResolve,onRefresh}) {
   const [filter,setFilter]=useState("all");
@@ -226,8 +237,43 @@ function FormField({label,children}) { return <label className="form-field"><spa
 function FormActions({onCancel}) { return <div className="form-actions"><button type="button" className="button button-light" onClick={onCancel}>Cancel</button><button className="button button-dark" type="submit"><Check size={15}/> Save changes</button></div>; }
 function ReceiveForm({batches,shelves,onSubmit,onCancel}) { const [batch,setBatch]=useState(batches[0]?.id||"");const [shelf,setShelf]=useState(shelves.find(s=>s.is_active)?.id||"");const [qty,setQty]=useState(1);const [notes,setNotes]=useState("");return <form onSubmit={e=>{e.preventDefault();onSubmit({batch_id:Number(batch),shelf_id:Number(shelf),quantity:Number(qty),notes:notes||null});}}><div className="form-grid"><FormField label="Product batch"><select required value={batch} onChange={e=>setBatch(e.target.value)}>{batches.map(b=><option key={b.id} value={b.id}>{b.batch_number} · Product #{b.product_id}</option>)}</select></FormField><FormField label="Destination shelf"><select required value={shelf} onChange={e=>setShelf(e.target.value)}>{shelves.filter(s=>s.is_active).map(s=><option key={s.id} value={s.id}>{s.code} · {s.name}</option>)}</select></FormField><FormField label="Quantity to receive"><input type="number" min="1" required value={qty} onChange={e=>setQty(e.target.value)}/></FormField><FormField label="Notes"><input value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional reference"/></FormField></div><FormActions onCancel={onCancel}/></form>; }
 function AdjustForm({row,onSubmit,onCancel}) { const [qty,setQty]=useState(row?.quantity??0);const [notes,setNotes]=useState("");return <form onSubmit={e=>{e.preventDefault();onSubmit({new_quantity:Number(qty),notes:notes||null});}}><div className="context-note">Adjusting <strong>{row?.product_name}</strong> on <strong>{row?.shelf_code}</strong>. Current quantity: {row?.quantity}.</div><div className="form-grid"><FormField label="New quantity"><input type="number" min="0" required value={qty} onChange={e=>setQty(e.target.value)}/></FormField><FormField label="Reason / notes"><input value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional explanation"/></FormField></div><FormActions onCancel={onCancel}/></form>; }
-function ProductForm({onSubmit,onCancel}) { const [v,setV]=useState({name:"",barcode:"",sku:"",brand:"",unit:"piece",selling_price:0,purchase_price:0,min_stock:0});const change=e=>setV({...v,[e.target.name]:e.target.type==="number"?Number(e.target.value):e.target.value});return <form onSubmit={e=>{e.preventDefault();onSubmit({...v,barcode:v.barcode||null,sku:v.sku||null,brand:v.brand||null});}}><div className="form-grid"><FormField label="Product name"><input name="name" required value={v.name} onChange={change}/></FormField><FormField label="Barcode"><input name="barcode" value={v.barcode} onChange={change}/></FormField><FormField label="SKU"><input name="sku" value={v.sku} onChange={change}/></FormField><FormField label="Brand"><input name="brand" value={v.brand} onChange={change}/></FormField><FormField label="Unit"><input name="unit" value={v.unit} onChange={change}/></FormField><FormField label="Selling price (TND)"><input name="selling_price" type="number" min="0" step="0.001" value={v.selling_price} onChange={change}/></FormField><FormField label="Purchase price (TND)"><input name="purchase_price" type="number" min="0" step="0.001" value={v.purchase_price} onChange={change}/></FormField><FormField label="Minimum stock"><input name="min_stock" type="number" min="0" value={v.min_stock} onChange={change}/></FormField></div><FormActions onCancel={onCancel}/></form>; }
+function ProductForm({initial,onSubmit,onCancel}) {
+  const [v,setV]=useState(()=>({
+    name:initial?.name||"",barcode:initial?.barcode||"",sku:initial?.sku||"",
+    brand:initial?.brand||"",unit:initial?.unit||"piece",
+    selling_price:initial?.selling_price??0,purchase_price:initial?.purchase_price??0,
+    min_stock:initial?.min_stock??0,
+  }));
+  const change=e=>setV({...v,[e.target.name]:e.target.type==="number"?Number(e.target.value):e.target.value});
+  return <form onSubmit={e=>{e.preventDefault();onSubmit({...v,barcode:v.barcode||null,sku:v.sku||null,brand:v.brand||null});}}>
+    <div className="form-grid">
+      <FormField label="Product name"><input name="name" required value={v.name} onChange={change}/></FormField>
+      <FormField label="Barcode"><input name="barcode" value={v.barcode} onChange={change}/></FormField>
+      <FormField label="SKU"><input name="sku" value={v.sku} onChange={change}/></FormField>
+      <FormField label="Brand"><input name="brand" value={v.brand} onChange={change}/></FormField>
+      <FormField label="Unit"><input name="unit" value={v.unit} onChange={change}/></FormField>
+      <FormField label="Selling price (TND)"><input name="selling_price" type="number" min="0" step="0.001" value={v.selling_price} onChange={change}/></FormField>
+      <FormField label="Purchase price (TND)"><input name="purchase_price" type="number" min="0" step="0.001" value={v.purchase_price} onChange={change}/></FormField>
+      <FormField label="Minimum stock"><input name="min_stock" type="number" min="0" value={v.min_stock} onChange={change}/></FormField>
+    </div><FormActions onCancel={onCancel}/>
+  </form>;
+}
 function BatchForm({products,onSubmit,onCancel}) { const [v,setV]=useState({product_id:products[0]?.id||"",batch_number:"",expiration_date:"",received_quantity:1,purchase_price:""});const change=e=>setV({...v,[e.target.name]:e.target.value});return <form onSubmit={e=>{e.preventDefault();onSubmit({...v,product_id:Number(v.product_id),received_quantity:Number(v.received_quantity),purchase_price:v.purchase_price===""?null:Number(v.purchase_price)});}}><div className="form-grid"><FormField label="Product"><select name="product_id" value={v.product_id} onChange={change}>{products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></FormField><FormField label="Batch number"><input name="batch_number" required value={v.batch_number} onChange={change}/></FormField><FormField label="Expiration date"><input type="date" name="expiration_date" required value={v.expiration_date} onChange={change}/></FormField><FormField label="Received quantity"><input type="number" min="1" name="received_quantity" required value={v.received_quantity} onChange={change}/></FormField><FormField label="Purchase price (TND)"><input type="number" min="0" step="0.001" name="purchase_price" value={v.purchase_price} onChange={change}/></FormField></div><FormActions onCancel={onCancel}/></form>; }
-function ShelfForm({onSubmit,onCancel}) { const [v,setV]=useState({code:"",name:"",device_id:"",location:"",description:""});const change=e=>setV({...v,[e.target.name]:e.target.value});return <form onSubmit={e=>{e.preventDefault();onSubmit({...v,device_id:v.device_id||null,location:v.location||null,description:v.description||null});}}><div className="form-grid"><FormField label="Shelf code"><input name="code" required value={v.code} onChange={change} placeholder="SHELF-A02"/></FormField><FormField label="Shelf name"><input name="name" required value={v.name} onChange={change}/></FormField><FormField label="Device ID"><input name="device_id" value={v.device_id} onChange={change} placeholder="SIM-SHELF-002"/></FormField><FormField label="Location"><input name="location" value={v.location} onChange={change}/></FormField><FormField label="Description"><input name="description" value={v.description} onChange={change}/></FormField></div><FormActions onCancel={onCancel}/></form>; }
+function ShelfForm({initial,onSubmit,onCancel}) {
+  const [v,setV]=useState(()=>({
+    code:initial?.code||"",name:initial?.name||"",device_id:initial?.device_id||"",
+    location:initial?.location||"",description:initial?.description||"",
+  }));
+  const change=e=>setV({...v,[e.target.name]:e.target.value});
+  return <form onSubmit={e=>{e.preventDefault();onSubmit({...v,device_id:v.device_id||null,location:v.location||null,description:v.description||null});}}>
+    <div className="form-grid">
+      <FormField label="Shelf code"><input name="code" required value={v.code} onChange={change} placeholder="SHELF-A02"/></FormField>
+      <FormField label="Shelf name"><input name="name" required value={v.name} onChange={change}/></FormField>
+      <FormField label="Device ID"><input name="device_id" value={v.device_id} onChange={change} placeholder="SIM-SHELF-002"/></FormField>
+      <FormField label="Location"><input name="location" value={v.location} onChange={change}/></FormField>
+      <FormField label="Description"><input name="description" value={v.description} onChange={change}/></FormField>
+    </div><FormActions onCancel={onCancel}/>
+  </form>;
+}
 
 export default App;
