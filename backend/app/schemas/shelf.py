@@ -18,6 +18,7 @@ class ShelfUpdate(BaseModel):
     location: str | None = None
     description: str | None = None
     device_id: str | None = Field(default=None, max_length=100)
+    is_active: bool | None = None
 
 
 class ShelfOut(BaseModel):
